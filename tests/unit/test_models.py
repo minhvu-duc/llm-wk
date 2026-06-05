@@ -3,8 +3,12 @@ from llmwiki.models import Outcome, IncomingDocument, DecisionRecord, DocumentVe
 
 def test_outcome_values():
     assert {o.value for o in Outcome} == {
-        "REJECTED", "DUPLICATE", "UPDATE", "NEW", "NEEDS_REVIEW"
+        "REJECTED", "DUPLICATE", "UPDATE", "NEW", "NEEDS_REVIEW", "REPLACE"
     }
+
+
+def test_outcome_has_replace():
+    assert Outcome.REPLACE.value == "REPLACE"
 
 
 def test_incoming_document_defaults():

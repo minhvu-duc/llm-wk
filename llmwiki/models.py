@@ -15,6 +15,7 @@ class Outcome(str, Enum):
     UPDATE = "UPDATE"
     NEW = "NEW"
     NEEDS_REVIEW = "NEEDS_REVIEW"
+    REPLACE = "REPLACE"
 
 
 class IncomingDocument(BaseModel):
