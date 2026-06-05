@@ -1,9 +1,24 @@
 from __future__ import annotations
+import re
 from fastapi import APIRouter, Request, HTTPException
 from llmwiki.api.schemas import IngestRequest, CreateCollectionRequest, ResolveRequest
 from llmwiki.auth.base import AuthError
 from llmwiki.auth.authz import authorize
+from llmwiki.config import CollectionConfig
 from llmwiki.models import IncomingDocument
+
+
+def _validate_and_dump_config(config: dict) -> dict:
+    try:
+        cfg = CollectionConfig(**config)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"invalid config: {e}")
+    for pattern in cfg.denylist_patterns:
+        try:
+            re.compile(pattern)
+        except re.error as e:
+            raise HTTPException(status_code=422, detail=f"invalid denylist regex /{pattern}/: {e}")
+    return cfg.model_dump()
 
 
 def _principal(request: Request):
@@ -26,10 +41,34 @@ def build_router() -> APIRouter:
 
     @r.post("/collections")
     def create_collection(body: CreateCollectionRequest, request: Request):
-        _principal(request)
+        principal = _principal(request)
         # any authenticated principal may create; scope enforced on ingest
         request.app.state.service.ensure_collection(body.name)
+        if body.config is not None:
+            _check(principal, body.name, "admin")
+            request.app.state.index.set_collection_config(
+                body.name, _validate_and_dump_config(body.config))
         return {"name": body.name}
+
+    @r.get("/collections/{collection}/config")
+    def get_config(collection: str, request: Request):
+        principal = _principal(request)
+        _check(principal, collection, "read")
+        row = request.app.state.index.get_collection(collection)
+        if not row:
+            raise HTTPException(status_code=404, detail="not found")
+        return CollectionConfig(**row["config"]).model_dump() if row["config"] \
+            else CollectionConfig().model_dump()
+
+    @r.put("/collections/{collection}/config")
+    def put_config(collection: str, body: dict, request: Request):
+        principal = _principal(request)
+        _check(principal, collection, "admin")
+        if request.app.state.index.get_collection(collection) is None:
+            raise HTTPException(status_code=404, detail="not found")
+        dumped = _validate_and_dump_config(body)
+        request.app.state.index.set_collection_config(collection, dumped)
+        return dumped
 
     @r.post("/collections/{collection}/documents")
     def ingest(collection: str, body: IngestRequest, request: Request):

@@ -12,6 +12,14 @@ class AdjudicatorVerdict(BaseModel):
     rationale: str = ""
 
 
+class KnowledgeVerdict(BaseModel):
+    is_knowledge: bool
+    category: str = ""
+    confidence: Confidence
+    rationale: str = ""
+
+
 class Provider(Protocol):
     def embed(self, text: str) -> list[float]: ...
     def adjudicate(self, incoming: str, existing: str) -> AdjudicatorVerdict: ...
+    def assess(self, text: str, rubric: str) -> KnowledgeVerdict: ...

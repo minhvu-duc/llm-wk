@@ -22,11 +22,11 @@ def test_healthz(tmp_path):
 
 def test_ingest_new_then_duplicate(tmp_path):
     c = client(tmp_path)
-    r1 = c.post("/v1/collections/kb/documents",
-                json={"content": "hello world doc", "declared_id": "d1"}, headers=H)
+    body = {"content": "The enterprise refund window is thirty days from the invoice date.",
+            "declared_id": "d1"}
+    r1 = c.post("/v1/collections/kb/documents", json=body, headers=H)
     assert r1.status_code == 200 and r1.json()["outcome"] == "NEW"
-    r2 = c.post("/v1/collections/kb/documents",
-                json={"content": "hello world doc", "declared_id": "d1"}, headers=H)
+    r2 = c.post("/v1/collections/kb/documents", json=body, headers=H)
     assert r2.json()["outcome"] == "DUPLICATE"
 
 
