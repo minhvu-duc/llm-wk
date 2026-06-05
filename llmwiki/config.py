@@ -14,9 +14,7 @@ class CollectionConfig(BaseModel):
     allowed_content_types: list[str] = Field(
         default_factory=lambda: ["text/plain", "text/markdown", "text/html"]
     )
-    # --- quality-control gates ---
-    quality_enabled: bool = True
-    gate_order: list[str] = Field(default_factory=lambda: ["min_info", "denylist", "knowledge"])
+    # --- default-pipeline knobs (used by default_pipeline() when no explicit pipeline set) ---
     min_chars: int = 40
     denylist_patterns: list[str] = Field(default_factory=list)
     denylist_action: Literal["REJECT", "REVIEW"] = "REVIEW"
@@ -25,6 +23,30 @@ class CollectionConfig(BaseModel):
         "user/entity preferences or attributes. Drop greetings, small talk, scheduling chatter, "
         "and ephemeral or purely transactional exchanges with no lasting value."
     )
+    # explicit composable pipeline; when None, default_pipeline(cfg) is used
+    pipeline: list[dict] | None = None
+
+
+def default_pipeline(cfg: "CollectionConfig") -> list[dict]:
+    """The default pipeline reproduces the pre-framework behavior:
+    validity (min_length + denylist + knowledge) -> dedup -> update (version only)."""
+    return [
+        {"gate": "validity", "rules": [
+            {"type": "min_length", "params": {"min_chars": cfg.min_chars}},
+            {"type": "regex_denylist", "params": {"patterns": cfg.denylist_patterns,
+                                                  "action": cfg.denylist_action}},
+            {"type": "knowledge_worthiness", "params": {"rubric": cfg.knowledge_rubric,
+                                                        "on_uncertain": "REVIEW"}},
+        ]},
+        {"gate": "dedup", "rules": [
+            {"type": "exact_duplicate"},
+            {"type": "identity_match"},
+            {"type": "semantic_duplicate", "params": {"threshold_high": cfg.high_threshold,
+                                                      "gray_band": cfg.low_threshold,
+                                                      "margin": cfg.margin}},
+        ]},
+        {"gate": "update", "rules": [{"type": "version_on_change"}]},
+    ]
 
 
 class Settings(BaseModel):

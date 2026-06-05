@@ -29,24 +29,35 @@ whether and how a document enters the store.
 | `NEW` | no match |
 | `NEEDS_REVIEW` | ambiguous (dedup) or borderline quality — queued for a human |
 
-## Quality-control gates
+## Composable gates & rules
 
-Before dedup, each document passes a configurable chain of gates (default order
-`min_info → denylist → knowledge`). Gates run **before embedding**, so filtered content costs
-nothing. A gate returns PASS / REJECT / REVIEW; REJECT → `REJECTED` (logged with the gate +
-reason), REVIEW → `NEEDS_REVIEW` (human queue), PASS → dedup/version.
+A collection's decision pipeline is a configurable list of **gates**, each containing **rules**
+from a categorized palette. Rules are evaluated in order, first-match within a gate, and the first
+gate to fire a terminal disposition short-circuits the chain (otherwise the doc is `ACCEPT`ed).
+Validity/semantic rules run before embedding, so filtered content costs nothing.
 
-The `knowledge` gate asks the LLM whether the text is worth storing, using a per-collection
-**rubric** you control. Set rules per collection (admin only):
+Categories & built-in rule types:
+- **Validity** — `min_length`, `content_type`, `regex_denylist`, `knowledge_worthiness`
+- **Existence** — `exact_duplicate`, `identity_match`, `semantic_duplicate`
+- **Update/Replace** — `version_on_change`, `semantic_replace`
+- **Routing** — `confidence_route`, `accept`
+
+Set a collection's pipeline (admin only):
 
 ```bash
 curl -X PUT localhost:8000/v1/collections/kb/config -H "authorization: Bearer $KEY" \
   -H 'content-type: application/json' \
-  -d '{"min_chars":40,"knowledge_rubric":"Keep durable facts and customer preferences; drop greetings and small talk.","denylist_patterns":["\\bSSN\\b"],"denylist_action":"REVIEW"}'
+  -d '{"pipeline":[
+        {"gate":"validity","rules":[{"type":"min_length","params":{"min_chars":40}},
+                                    {"type":"knowledge_worthiness","params":{"rubric":"Keep durable facts; drop small talk.","on_uncertain":"REVIEW"}}]},
+        {"gate":"dedup","rules":[{"type":"exact_duplicate"},{"type":"identity_match"},{"type":"semantic_duplicate"}]},
+        {"gate":"update","rules":[{"type":"version_on_change"}]}]}'
 ```
 
-`GET /v1/collections/{c}/config` reads the current rules. Disable filtering with
-`{"quality_enabled": false}`.
+With no pipeline configured, a default pipeline reproduces the built-in behavior.
+`GET /v1/collections/{c}/config` reads the current rules. `semantic_replace` (supersede a
+different existing doc) is opt-in and review-by-default — it only auto-replaces with a direction
+signal (a `supersedes` metadata hint) or when `allow_unsignaled_replace` is set.
 
 ## Quickstart
 

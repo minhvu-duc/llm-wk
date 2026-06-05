@@ -15,9 +15,9 @@ def test_collection_create_and_get(tmp_path):
 
 def test_set_collection_config_roundtrip(tmp_path):
     s = make_store(tmp_path); s.create_collection("kb")
-    s.set_collection_config("kb", {"min_chars": 99, "quality_enabled": False})
+    s.set_collection_config("kb", {"min_chars": 99, "denylist_action": "REJECT"})
     cfg = s.get_collection("kb")["config"]
-    assert cfg["min_chars"] == 99 and cfg["quality_enabled"] is False
+    assert cfg["min_chars"] == 99 and cfg["denylist_action"] == "REJECT"
 
 
 def test_document_and_version_persist(tmp_path):

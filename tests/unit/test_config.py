@@ -14,9 +14,20 @@ def test_collection_config_defaults():
 
 def test_collection_config_quality_defaults():
     c = CollectionConfig()
-    assert c.quality_enabled is True
-    assert c.gate_order == ["min_info", "denylist", "knowledge"]
     assert c.min_chars == 40
     assert c.denylist_patterns == []
     assert c.denylist_action == "REVIEW"
     assert "Keep durable facts" in c.knowledge_rubric
+    assert c.pipeline is None
+
+
+def test_default_pipeline_reproduces_current_gates():
+    from llmwiki.config import default_pipeline
+    cfg = CollectionConfig()
+    pipe = cfg.pipeline or default_pipeline(cfg)
+    gate_names = [g["gate"] for g in pipe]
+    assert gate_names == ["validity", "dedup", "update"]
+    dedup_types = [r["type"] for r in pipe[1]["rules"]]
+    assert dedup_types == ["exact_duplicate", "identity_match", "semantic_duplicate"]
+    # semantic_replace is NOT in the default pipeline (opt-in)
+    assert all(r["type"] != "semantic_replace" for g in pipe for r in g["rules"])

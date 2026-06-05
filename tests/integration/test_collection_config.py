@@ -21,7 +21,7 @@ W = {"authorization": "Bearer writer"}
 
 def test_put_and_get_config(tmp_path):
     c = make_client(tmp_path)
-    r = c.put("/v1/collections/kb/config", json={"min_chars": 5, "quality_enabled": True}, headers=A)
+    r = c.put("/v1/collections/kb/config", json={"min_chars": 5}, headers=A)
     assert r.status_code == 200
     g = c.get("/v1/collections/kb/config", headers=A)
     assert g.status_code == 200 and g.json()["min_chars"] == 5
@@ -37,6 +37,16 @@ def test_invalid_regex_is_422(tmp_path):
     c = make_client(tmp_path)
     r = c.put("/v1/collections/kb/config", json={"denylist_patterns": ["("]}, headers=A)
     assert r.status_code == 422
+
+
+def test_put_pipeline_config_validates(tmp_path):
+    c = make_client(tmp_path)
+    good = {"pipeline": [{"gate": "validity", "rules": [{"type": "min_length", "params": {"min_chars": 10}}]}]}
+    assert c.put("/v1/collections/kb/config", json=good, headers=A).status_code == 200
+    bad = {"pipeline": [{"gate": "g", "rules": [{"type": "nope"}]}]}
+    assert c.put("/v1/collections/kb/config", json=bad, headers=A).status_code == 422
+    badp = {"pipeline": [{"gate": "g", "rules": [{"type": "min_length", "params": {"min_chars": "lots"}}]}]}
+    assert c.put("/v1/collections/kb/config", json=badp, headers=A).status_code == 422
 
 
 def test_per_collection_rules_change_outcome(tmp_path):

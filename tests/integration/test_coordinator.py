@@ -8,9 +8,13 @@ from llmwiki.models import IncomingDocument, Outcome
 
 
 def test_concurrent_same_doc_serialized_no_dup_documents(tmp_path):
-    # isolate the coordinator/dedup behavior from the quality pre-filter
+    # isolate coordinator/dedup behavior from the validity pre-filter via a dedup-only pipeline
     svc = IngestService(IndexStore(str(tmp_path / "idx.db")), str(tmp_path / "r"), FakeProvider(),
-                        config=CollectionConfig(quality_enabled=False))
+                        config=CollectionConfig(pipeline=[
+                            {"gate": "dedup", "rules": [{"type": "exact_duplicate"},
+                                                        {"type": "identity_match"},
+                                                        {"type": "semantic_duplicate"}]},
+                            {"gate": "update", "rules": [{"type": "version_on_change"}]}]))
     svc.ensure_collection("kb")
     coord = Coordinator(svc)
     results = []

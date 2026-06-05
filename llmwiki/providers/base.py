@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Protocol, Literal
 from pydantic import BaseModel
 
-Relationship = Literal["SAME_UPDATED", "DIFFERENT", "RELATED_BUT_DISTINCT", "CONFLICTING"]
+Relationship = Literal["SAME_UPDATED", "DIFFERENT", "RELATED_BUT_DISTINCT", "CONFLICTING", "SUPERSEDES"]
 Confidence = Literal["HIGH", "MEDIUM", "LOW"]
 
 

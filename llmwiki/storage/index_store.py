@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from llmwiki.classifier import Candidate
+from llmwiki.rules.base import Candidate
 from llmwiki.models import Document, DocumentVersion, DecisionRecord, ReviewItem, Outcome
 
 _SCHEMA = """
@@ -11,6 +11,7 @@ CREATE TABLE IF NOT EXISTS collections (
 CREATE TABLE IF NOT EXISTS documents (
   id TEXT PRIMARY KEY, collection TEXT NOT NULL, stable_identity TEXT NOT NULL,
   current_version_id TEXT, wiki_path TEXT, created_at TEXT, updated_at TEXT,
+  status TEXT NOT NULL DEFAULT 'active', replaced_by TEXT, replaces TEXT,
   UNIQUE(collection, stable_identity));
 CREATE TABLE IF NOT EXISTS versions (
   id TEXT PRIMARY KEY, document_id TEXT NOT NULL, content_hash TEXT NOT NULL,
@@ -59,10 +60,17 @@ class IndexStore:
     def save_document(self, doc: Document) -> None:
         self._conn.execute(
             """INSERT OR REPLACE INTO documents
-               (id, collection, stable_identity, current_version_id, wiki_path, created_at, updated_at)
-               VALUES (?,?,?,?,?,?,?)""",
+               (id, collection, stable_identity, current_version_id, wiki_path,
+                created_at, updated_at, status, replaced_by, replaces)
+               VALUES (?,?,?,?,?,?,?,?,?,?)""",
             (doc.id, doc.collection, doc.stable_identity, doc.current_version_id,
-             doc.wiki_path, doc.created_at.isoformat(), doc.updated_at.isoformat()))
+             doc.wiki_path, doc.created_at.isoformat(), doc.updated_at.isoformat(),
+             doc.status, doc.replaced_by, doc.replaces))
+        self._conn.commit()
+
+    def mark_replaced(self, old_id: str, new_id: str) -> None:
+        self._conn.execute(
+            "UPDATE documents SET status='replaced', replaced_by=? WHERE id=?", (new_id, old_id))
         self._conn.commit()
 
     def get_document(self, doc_id: str) -> Document | None:
@@ -94,7 +102,7 @@ class IndexStore:
         rows = self._conn.execute(
             """SELECT d.id AS doc_id, v.content_hash, v.embedding, v.shingles, v.content
                FROM documents d JOIN versions v ON d.current_version_id = v.id
-               WHERE d.collection=?""", (collection,)).fetchall()
+               WHERE d.collection=? AND d.status='active'""", (collection,)).fetchall()
         return [Candidate(document_id=r["doc_id"], content_hash=r["content_hash"],
                           embedding=json.loads(r["embedding"]),
                           shingles=set(json.loads(r["shingles"])), content=r["content"])
@@ -144,11 +152,15 @@ class IndexStore:
     # --- helpers ---
     def _row_to_doc(self, row) -> Document:
         from datetime import datetime
-        return Document(id=row["id"], collection=row["collection"],
-                        stable_identity=row["stable_identity"],
-                        current_version_id=row["current_version_id"], wiki_path=row["wiki_path"],
-                        created_at=datetime.fromisoformat(row["created_at"]),
-                        updated_at=datetime.fromisoformat(row["updated_at"]))
+        keys = row.keys()
+        return Document(
+            id=row["id"], collection=row["collection"], stable_identity=row["stable_identity"],
+            current_version_id=row["current_version_id"], wiki_path=row["wiki_path"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
+            status=row["status"] if "status" in keys else "active",
+            replaced_by=row["replaced_by"] if "replaced_by" in keys else None,
+            replaces=row["replaces"] if "replaces" in keys else None)
 
     def _row_to_decision(self, row) -> DecisionRecord:
         from datetime import datetime
