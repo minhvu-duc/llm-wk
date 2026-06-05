@@ -14,6 +14,7 @@ class IngestRequest(BaseModel):
 
 class CreateCollectionRequest(BaseModel):
     name: str
+    config: dict[str, Any] | None = None
 
 
 class ResolveRequest(BaseModel):
