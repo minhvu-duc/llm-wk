@@ -23,11 +23,30 @@ whether and how a document enters the store.
 
 | Outcome | When |
 |---|---|
-| `REJECTED` | failed the trust gate |
+| `REJECTED` | failed the trust gate, or a quality gate dropped it as non-knowledge |
 | `DUPLICATE` | same identity + same content hash |
 | `UPDATE` | same identity, content changed |
 | `NEW` | no match |
-| `NEEDS_REVIEW` | ambiguous — queued for a human |
+| `NEEDS_REVIEW` | ambiguous (dedup) or borderline quality — queued for a human |
+
+## Quality-control gates
+
+Before dedup, each document passes a configurable chain of gates (default order
+`min_info → denylist → knowledge`). Gates run **before embedding**, so filtered content costs
+nothing. A gate returns PASS / REJECT / REVIEW; REJECT → `REJECTED` (logged with the gate +
+reason), REVIEW → `NEEDS_REVIEW` (human queue), PASS → dedup/version.
+
+The `knowledge` gate asks the LLM whether the text is worth storing, using a per-collection
+**rubric** you control. Set rules per collection (admin only):
+
+```bash
+curl -X PUT localhost:8000/v1/collections/kb/config -H "authorization: Bearer $KEY" \
+  -H 'content-type: application/json' \
+  -d '{"min_chars":40,"knowledge_rubric":"Keep durable facts and customer preferences; drop greetings and small talk.","denylist_patterns":["\\bSSN\\b"],"denylist_action":"REVIEW"}'
+```
+
+`GET /v1/collections/{c}/config` reads the current rules. Disable filtering with
+`{"quality_enabled": false}`.
 
 ## Quickstart
 
@@ -43,8 +62,9 @@ curl -s localhost:8000/v1/collections -H "authorization: Bearer dev-key" \
 
 curl -s localhost:8000/v1/collections/kb/documents -H "authorization: Bearer dev-key" \
      -H 'content-type: application/json' \
-     -d '{"content":"hello world","declared_id":"d1"}'
+     -d '{"content":"The enterprise refund window is thirty days from invoice.","declared_id":"d1"}'
 # -> {"outcome":"NEW", ...}; submitting the same body again -> {"outcome":"DUPLICATE"}
+# (trivial content like "hi thanks" is filtered by the quality gate -> {"outcome":"REJECTED"})
 ```
 
 Review queue dashboard: `http://localhost:8000/dashboard/kb`.
