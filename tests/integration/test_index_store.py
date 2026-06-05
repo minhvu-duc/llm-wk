@@ -13,6 +13,13 @@ def test_collection_create_and_get(tmp_path):
     assert s.get_collection("missing") is None
 
 
+def test_set_collection_config_roundtrip(tmp_path):
+    s = make_store(tmp_path); s.create_collection("kb")
+    s.set_collection_config("kb", {"min_chars": 99, "quality_enabled": False})
+    cfg = s.get_collection("kb")["config"]
+    assert cfg["min_chars"] == 99 and cfg["quality_enabled"] is False
+
+
 def test_document_and_version_persist(tmp_path):
     s = make_store(tmp_path); s.create_collection("kb")
     doc = Document(id="d1", collection="kb", stable_identity="uri://x")

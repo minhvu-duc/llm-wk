@@ -30,6 +30,11 @@ class IngestService:
         self.index.create_collection(name)
         ContentStore(self.content_root, name).init()
 
+    def _load_config(self, collection: str) -> CollectionConfig:
+        row = self.index.get_collection(collection)
+        stored = row.get("config") if row else None
+        return CollectionConfig(**stored) if stored else self.config
+
     def ingest(self, doc: IncomingDocument, principal_id: str | None = None) -> DecisionRecord:
         # idempotency short-circuit
         if doc.idempotency_key:

@@ -17,6 +17,14 @@ def ingest(svc, content, **kw):
     return svc.ingest(IncomingDocument(collection="kb", content=content, **kw))
 
 
+def test_load_config_returns_stored_then_default(tmp_path):
+    svc = make_service(tmp_path)
+    # no stored config -> default
+    assert svc._load_config("kb").min_chars == 40
+    svc.index.set_collection_config("kb", {"min_chars": 5})
+    assert svc._load_config("kb").min_chars == 5
+
+
 def test_first_doc_is_new(tmp_path):
     svc = make_service(tmp_path)
     rec = ingest(svc, "the cat sat on the mat", declared_id="doc-1")

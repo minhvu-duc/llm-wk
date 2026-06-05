@@ -48,6 +48,13 @@ class IndexStore:
         row = self._conn.execute("SELECT * FROM collections WHERE name=?", (name,)).fetchone()
         return {"name": row["name"], "config": json.loads(row["config"])} if row else None
 
+    def set_collection_config(self, name: str, config: dict) -> None:
+        self._conn.execute(
+            "INSERT INTO collections(name, config) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET config=excluded.config",
+            (name, json.dumps(config)))
+        self._conn.commit()
+
     # --- documents / versions ---
     def save_document(self, doc: Document) -> None:
         self._conn.execute(
