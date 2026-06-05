@@ -2,7 +2,7 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
-from llmwiki.classifier import Candidate
+from llmwiki.rules.base import Candidate
 from llmwiki.models import Document, DocumentVersion, DecisionRecord, ReviewItem, Outcome
 
 _SCHEMA = """
