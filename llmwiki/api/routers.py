@@ -6,6 +6,7 @@ from llmwiki.auth.base import AuthError
 from llmwiki.auth.authz import authorize
 from llmwiki.config import CollectionConfig
 from llmwiki.models import IncomingDocument
+from llmwiki.rules.engine import build_pipeline
 
 
 def _validate_and_dump_config(config: dict) -> dict:
@@ -18,6 +19,13 @@ def _validate_and_dump_config(config: dict) -> dict:
             re.compile(pattern)
         except re.error as e:
             raise HTTPException(status_code=422, detail=f"invalid denylist regex /{pattern}/: {e}")
+    if cfg.pipeline is not None:
+        try:
+            build_pipeline(cfg.pipeline)   # resolves rule types + validates each rule's params
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=f"invalid pipeline: {e}")
+        except Exception as e:
+            raise HTTPException(status_code=422, detail=f"invalid pipeline params: {e}")
     return cfg.model_dump()
 
 
