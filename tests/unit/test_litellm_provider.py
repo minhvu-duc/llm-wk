@@ -43,3 +43,32 @@ def test_adjudicate_malformed_falls_back_to_review(monkeypatch):
     v = p.adjudicate("a", "b")
     # malformed model output must not become a confident UPDATE
     assert v.confidence == "LOW"
+
+
+import json as _json
+import types as _types
+from llmwiki.providers.base import KnowledgeVerdict
+
+
+def test_assess_parses_json(monkeypatch):
+    payload = _json.dumps({"is_knowledge": True, "category": "fact",
+                           "confidence": "HIGH", "rationale": "policy"})
+
+    def fake_completion(model, messages, **kw):
+        return {"choices": [{"message": {"content": payload}}]}
+
+    monkeypatch.setattr(mod, "litellm", _types.SimpleNamespace(
+        embedding=None, completion=fake_completion))
+    v = mod.LiteLLMProvider().assess("text", "rubric")
+    assert isinstance(v, KnowledgeVerdict) and v.is_knowledge is True
+
+
+def test_assess_malformed_falls_back_to_review(monkeypatch):
+    def fake_completion(model, messages, **kw):
+        return {"choices": [{"message": {"content": "garbage"}}]}
+
+    monkeypatch.setattr(mod, "litellm", _types.SimpleNamespace(
+        embedding=None, completion=fake_completion))
+    v = mod.LiteLLMProvider().assess("text", "rubric")
+    # unparseable -> not-knowledge + LOW so the gate routes to REVIEW, never a confident drop
+    assert v.is_knowledge is False and v.confidence == "LOW"

@@ -1,7 +1,7 @@
 from __future__ import annotations
 import json
 import litellm
-from llmwiki.providers.base import AdjudicatorVerdict
+from llmwiki.providers.base import AdjudicatorVerdict, KnowledgeVerdict
 
 _PROMPT = (
     "You compare an INCOMING document against an EXISTING stored document and decide "
@@ -11,6 +11,13 @@ _PROMPT = (
     "SAME_UPDATED = same logical document, possibly revised. "
     "DIFFERENT = unrelated. RELATED_BUT_DISTINCT = related topic, distinct document. "
     "CONFLICTING = same topic but contradictory facts."
+)
+
+_ASSESS_PROMPT = (
+    "You decide whether a piece of text is worth storing as durable knowledge, following the "
+    "operator's RUBRIC. Respond with ONLY a JSON object: "
+    '{"is_knowledge": true|false, "category": short string, '
+    '"confidence": one of "HIGH"|"MEDIUM"|"LOW", "rationale": short string}.'
 )
 
 
@@ -39,3 +46,17 @@ class LiteLLMProvider:
             # fail safe: never let a malformed response become a confident decision
             return AdjudicatorVerdict(relationship="RELATED_BUT_DISTINCT",
                                       confidence="LOW", rationale="unparseable model output")
+
+    def assess(self, text: str, rubric: str) -> KnowledgeVerdict:
+        messages = [
+            {"role": "system", "content": _ASSESS_PROMPT},
+            {"role": "user", "content": f"RUBRIC:\n{rubric}\n\nTEXT:\n{text[:4000]}"},
+        ]
+        resp = litellm.completion(model=self.adjudicate_model, messages=messages, temperature=0)
+        content = resp["choices"][0]["message"]["content"]
+        try:
+            return KnowledgeVerdict(**json.loads(content))
+        except Exception:
+            # fail safe: unparseable -> low-confidence non-knowledge -> gate routes to REVIEW
+            return KnowledgeVerdict(is_knowledge=False, category="unknown",
+                                    confidence="LOW", rationale="unparseable model output")
