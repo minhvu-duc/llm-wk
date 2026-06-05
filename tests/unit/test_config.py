@@ -14,12 +14,11 @@ def test_collection_config_defaults():
 
 def test_collection_config_quality_defaults():
     c = CollectionConfig()
-    assert c.quality_enabled is True
-    assert c.gate_order == ["min_info", "denylist", "knowledge"]
     assert c.min_chars == 40
     assert c.denylist_patterns == []
     assert c.denylist_action == "REVIEW"
     assert "Keep durable facts" in c.knowledge_rubric
+    assert c.pipeline is None
 
 
 def test_default_pipeline_reproduces_current_gates():

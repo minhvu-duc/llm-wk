@@ -21,7 +21,7 @@ W = {"authorization": "Bearer writer"}
 
 def test_put_and_get_config(tmp_path):
     c = make_client(tmp_path)
-    r = c.put("/v1/collections/kb/config", json={"min_chars": 5, "quality_enabled": True}, headers=A)
+    r = c.put("/v1/collections/kb/config", json={"min_chars": 5}, headers=A)
     assert r.status_code == 200
     g = c.get("/v1/collections/kb/config", headers=A)
     assert g.status_code == 200 and g.json()["min_chars"] == 5

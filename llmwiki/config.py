@@ -14,9 +14,7 @@ class CollectionConfig(BaseModel):
     allowed_content_types: list[str] = Field(
         default_factory=lambda: ["text/plain", "text/markdown", "text/html"]
     )
-    # --- quality-control gates ---
-    quality_enabled: bool = True
-    gate_order: list[str] = Field(default_factory=lambda: ["min_info", "denylist", "knowledge"])
+    # --- default-pipeline knobs (used by default_pipeline() when no explicit pipeline set) ---
     min_chars: int = 40
     denylist_patterns: list[str] = Field(default_factory=list)
     denylist_action: Literal["REJECT", "REVIEW"] = "REVIEW"
@@ -25,6 +23,7 @@ class CollectionConfig(BaseModel):
         "user/entity preferences or attributes. Drop greetings, small talk, scheduling chatter, "
         "and ephemeral or purely transactional exchanges with no lasting value."
     )
+    # explicit composable pipeline; when None, default_pipeline(cfg) is used
     pipeline: list[dict] | None = None
 
 
