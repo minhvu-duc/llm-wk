@@ -5,6 +5,8 @@ from llmwiki.config import CollectionConfig
 from llmwiki.models import (IncomingDocument, Document, DocumentVersion,
                             DecisionRecord, ReviewItem, Outcome)
 from llmwiki.providers.base import Provider
+from llmwiki.gates.chain import build_chain
+from llmwiki.gates.base import GateContext
 from llmwiki.storage import IndexStore, ContentStore
 from llmwiki.text import content_hash, shingles
 
@@ -42,6 +44,14 @@ class IngestService:
             if prior is not None:
                 return prior
 
+        cfg = self._load_config(doc.collection)
+
+        # quality gates run BEFORE embedding so rejected content costs nothing downstream
+        if cfg.quality_enabled:
+            verdict = build_chain(cfg).run(doc, GateContext(config=cfg, provider=self.provider))
+            if verdict is not None and verdict.decision != "PASS":
+                return self._record_gate_block(doc, verdict, principal_id)
+
         chash = content_hash(doc.content)
         embedding = self.provider.embed(doc.content)
         sh = shingles(doc.content)
@@ -56,7 +66,7 @@ class IngestService:
 
         fp = Fingerprint(content_hash=chash, embedding=embedding, shingles=sh,
                          declared_id=identity)
-        decision = classify(fp, candidates, self.config, self.provider.adjudicate)
+        decision = classify(fp, candidates, cfg, self.provider.adjudicate)
 
         rec = DecisionRecord(id=_id("dec"), collection=doc.collection, outcome=decision.outcome,
                              content_hash=chash, principal_id=principal_id,
@@ -73,6 +83,19 @@ class IngestService:
             return rec
         else:  # DUPLICATE / REJECTED
             self.index.save_decision(rec, idempotency_key=doc.idempotency_key)
+        return rec
+
+    def _record_gate_block(self, doc: IncomingDocument, verdict, principal_id) -> DecisionRecord:
+        outcome = Outcome.REJECTED if verdict.decision == "REJECT" else Outcome.NEEDS_REVIEW
+        rec = DecisionRecord(id=_id("dec"), collection=doc.collection, outcome=outcome,
+                             content_hash=content_hash(doc.content), principal_id=principal_id,
+                             reason=verdict.reason,
+                             signals={"gate": verdict.gate, **verdict.signals})
+        self.index.save_decision(rec, idempotency_key=doc.idempotency_key)
+        if outcome is Outcome.NEEDS_REVIEW:
+            self.index.save_review(ReviewItem(
+                id=_id("rev"), decision_id=rec.id, collection=doc.collection,
+                candidates=[{"gate": verdict.gate, "reason": verdict.reason, **verdict.signals}]))
         return rec
 
     def _apply(self, doc, decision, rec, chash, embedding, sh, identity, principal_id):

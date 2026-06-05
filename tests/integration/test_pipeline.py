@@ -2,13 +2,17 @@ from llmwiki.pipeline import IngestService
 from llmwiki.storage import IndexStore
 from llmwiki.providers.fake import FakeProvider
 from llmwiki.providers.base import AdjudicatorVerdict
+from llmwiki.config import CollectionConfig
 from llmwiki.models import IncomingDocument, Outcome
 
 
 def make_service(tmp_path, provider=None):
     idx = IndexStore(str(tmp_path / "idx.db"))
+    # quality gates are exercised in test_pipeline_quality.py; disable here so these
+    # tests isolate the dedup/version classifier from the pre-filter.
     svc = IngestService(index=idx, content_root=str(tmp_path / "repos"),
-                        provider=provider or FakeProvider())
+                        provider=provider or FakeProvider(),
+                        config=CollectionConfig(quality_enabled=False))
     svc.ensure_collection("kb")
     return svc
 

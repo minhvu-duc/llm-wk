@@ -3,11 +3,14 @@ from llmwiki.coordinator import Coordinator
 from llmwiki.pipeline import IngestService
 from llmwiki.storage import IndexStore
 from llmwiki.providers.fake import FakeProvider
+from llmwiki.config import CollectionConfig
 from llmwiki.models import IncomingDocument, Outcome
 
 
 def test_concurrent_same_doc_serialized_no_dup_documents(tmp_path):
-    svc = IngestService(IndexStore(str(tmp_path / "idx.db")), str(tmp_path / "r"), FakeProvider())
+    # isolate the coordinator/dedup behavior from the quality pre-filter
+    svc = IngestService(IndexStore(str(tmp_path / "idx.db")), str(tmp_path / "r"), FakeProvider(),
+                        config=CollectionConfig(quality_enabled=False))
     svc.ensure_collection("kb")
     coord = Coordinator(svc)
     results = []
