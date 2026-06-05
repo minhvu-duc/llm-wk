@@ -45,6 +45,9 @@ class Document(BaseModel):
     wiki_path: str | None = None
     created_at: datetime = Field(default_factory=_now)
     updated_at: datetime = Field(default_factory=_now)
+    status: str = "active"          # active | replaced
+    replaced_by: str | None = None
+    replaces: str | None = None
 
 
 class DecisionRecord(BaseModel):
