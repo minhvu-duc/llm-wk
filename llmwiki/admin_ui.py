@@ -1,11 +1,14 @@
 from __future__ import annotations
 import html
 import json
+import re
 from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 from llmwiki.auth.base import AuthError
 from llmwiki.config import CollectionConfig, default_pipeline
 from llmwiki.rules.engine import build_pipeline
+
+_REALM_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
 _CSS = """
 <style>
@@ -86,17 +89,36 @@ def attach_admin(app: FastAPI) -> None:
         return resp
 
     @app.get("/admin", response_class=HTMLResponse)
-    def home(request: Request):
+    def home(request: Request, error: str = "", ok: str = ""):
         if _principal(request) is None:
             return _login_redirect()
         realms = request.app.state.index.list_collections()
         rows = "".join(f'<li><a href="/admin/realms/{html.escape(c)}">{html.escape(c)}</a></li>'
                        for c in realms) or "<li>(no realms yet)</li>"
-        body = (f'<div class="card"><h2>Realms (zones)</h2><ul>{rows}</ul></div>'
+        banner = (f'<div class="err">{html.escape(error)}</div>' if error else
+                  f'<div class="ok">{html.escape(ok)}</div>' if ok else "")
+        new_form = (
+            '<div class="card"><h3>New realm</h3>'
+            '<form method="post" action="/admin/realms" style="display:flex;gap:8px;align-items:center">'
+            '<input name="name" placeholder="e.g. support"/> <button type="submit">Create</button>'
+            '</form><p class="cat">lowercase letters, digits, - and _</p></div>')
+        body = (f'{banner}<div class="card"><h2>Realms (zones)</h2><ul>{rows}</ul></div>'
+                f'{new_form}'
                 '<div class="card">Each realm is an isolated zone with its own gate pipeline, '
                 'documents, and git history. Manage access under '
                 '<a href="/admin/keys">API keys</a>.</div>')
         return _page("realms", body)
+
+    @app.post("/admin/realms")
+    def create_realm(name: str = Form(...), request: Request = None):
+        if _principal(request) is None:
+            return _login_redirect()
+        name = name.strip()
+        if not _REALM_RE.match(name):
+            return RedirectResponse("/admin?error=invalid+realm+name+(use+a-z+0-9+-+_)",
+                                    status_code=303)
+        request.app.state.service.ensure_collection(name)
+        return RedirectResponse(f"/admin/realms/{name}?ok=realm+created", status_code=303)
 
     @app.get("/admin/realms/{collection}", response_class=HTMLResponse)
     def realm(collection: str, request: Request, error: str = "", ok: str = ""):

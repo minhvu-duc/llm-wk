@@ -87,3 +87,32 @@ def test_help_page_renders(tmp_path):
     c = logged_in(tmp_path)
     r = c.get("/admin/help")
     assert r.status_code == 200 and "How gates" in r.text and "Dispositions" in r.text
+
+
+def test_home_shows_new_realm_form(tmp_path):
+    c = logged_in(tmp_path)
+    assert 'action="/admin/realms"' in c.get("/admin").text
+
+
+def test_create_realm_from_ui(tmp_path):
+    c = logged_in(tmp_path)
+    r = c.post("/admin/realms", data={"name": "newzone"})
+    assert r.status_code == 200  # followed redirect to the realm page
+    assert "newzone" in c.app.state.index.list_collections()
+    assert "newzone" in c.get("/admin").text          # appears on home
+    # the realm's git repo was created (ensure_collection), not just a DB row
+    import os
+    assert os.path.isdir(os.path.join(str(tmp_path), "repos", "newzone", ".git"))
+
+
+def test_create_realm_rejects_bad_name(tmp_path):
+    c = logged_in(tmp_path)
+    r = c.post("/admin/realms", data={"name": "Bad Name!"}, follow_redirects=False)
+    assert r.status_code == 303 and "error" in r.headers["location"]
+    assert "Bad Name!" not in c.app.state.index.list_collections()
+
+
+def test_create_realm_requires_login(tmp_path):
+    c = TestClient(make_app(tmp_path))   # no cookie
+    r = c.post("/admin/realms", data={"name": "x"}, follow_redirects=False)
+    assert r.status_code == 303 and "/admin/login" in r.headers["location"]
