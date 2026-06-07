@@ -129,6 +129,23 @@ def build_router() -> APIRouter:
             raise HTTPException(status_code=404, detail="not found")
         return doc.model_dump(mode="json")
 
+    @r.post("/collections/{collection}/query")
+    def query_zone(collection: str, body: QueryRequest, request: Request):
+        principal = _principal(request)
+        _check(principal, collection, "query")
+        results = request.app.state.query.query_zone(collection, body.query, body.top_k)
+        return {"query": body.query, "results": results}
+
+    @r.post("/query")
+    def query_global(body: QueryRequest, request: Request):
+        principal = _principal(request)
+        if "query" not in principal.roles and "admin" not in principal.roles:
+            raise HTTPException(status_code=403, detail="query role required")
+        q = request.app.state.query
+        zones = q.resolve_zones(principal.allowed_collections, body.collections)
+        results = q.query_global(zones, body.query, body.top_k)
+        return {"query": body.query, "zones": zones, "results": results}
+
     @r.get("/decisions/{decision_id}")
     def get_decision(decision_id: str, request: Request):
         _principal(request)

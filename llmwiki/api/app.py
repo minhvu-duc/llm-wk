@@ -4,6 +4,7 @@ from llmwiki.api.routers import build_router
 from llmwiki.auth.base import Authenticator
 from llmwiki.coordinator import Coordinator
 from llmwiki.pipeline import IngestService
+from llmwiki.query import QueryService
 from llmwiki.providers.fake import FakeProvider
 from llmwiki.storage import IndexStore
 
@@ -26,6 +27,7 @@ def create_app(data_dir: str, authenticator: Authenticator | None = None,
     app.state.service = service
     app.state.coordinator = coordinator
     app.state.provider = provider
+    app.state.query = QueryService(index, provider)
     # authenticator_factory(index) lets stored/db-backed authenticators bind to this index
     app.state.authenticator = authenticator_factory(index) if authenticator_factory else authenticator
 
