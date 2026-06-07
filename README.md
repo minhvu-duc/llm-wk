@@ -54,6 +54,10 @@ curl -X PUT localhost:8000/v1/collections/kb/config -H "authorization: Bearer $K
         {"gate":"update","rules":[{"type":"version_on_change"}]}]}'
 ```
 
+Or build it visually: the admin UI at `/admin/realms/{c}` has a **visual gate builder** — add/reorder
+gates and rules and fill each rule's parameters with form inputs (no JSON), with the raw JSON kept under
+"Advanced". The rule palette is also available programmatically at `GET /v1/rule-types`.
+
 With no pipeline configured, a default pipeline reproduces the built-in behavior.
 `GET /v1/collections/{c}/config` reads the current rules. `semantic_replace` (supersede a
 different existing doc) is opt-in and review-by-default — it only auto-replaces with a direction

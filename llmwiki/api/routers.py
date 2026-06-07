@@ -11,6 +11,7 @@ from llmwiki.auth.stored import generate_key, hash_key
 from llmwiki.config import CollectionConfig
 from llmwiki.models import IncomingDocument
 from llmwiki.rules.engine import build_pipeline
+from llmwiki.rules.catalog import rule_catalog
 
 
 def _validate_and_dump_config(config: dict) -> dict:
@@ -128,6 +129,11 @@ def build_router() -> APIRouter:
         if not doc or doc.collection != collection:
             raise HTTPException(status_code=404, detail="not found")
         return doc.model_dump(mode="json")
+
+    @r.get("/rule-types")
+    def rule_types(request: Request):
+        _principal(request)  # any authenticated principal; non-sensitive metadata
+        return {"rule_types": rule_catalog()}
 
     @r.post("/collections/{collection}/query")
     def query_zone(collection: str, body: QueryRequest, request: Request):
