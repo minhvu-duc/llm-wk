@@ -1,9 +1,13 @@
 from __future__ import annotations
 import re
+import uuid
+from datetime import datetime, timezone
 from fastapi import APIRouter, Request, HTTPException
-from llmwiki.api.schemas import IngestRequest, CreateCollectionRequest, ResolveRequest
+from llmwiki.api.schemas import (IngestRequest, CreateCollectionRequest, ResolveRequest,
+                                 CreateKeyRequest, QueryRequest)
 from llmwiki.auth.base import AuthError
 from llmwiki.auth.authz import authorize
+from llmwiki.auth.stored import generate_key, hash_key
 from llmwiki.config import CollectionConfig
 from llmwiki.models import IncomingDocument
 from llmwiki.rules.engine import build_pipeline
@@ -44,8 +48,38 @@ def _check(principal, collection, action):
         raise HTTPException(status_code=403, detail=str(e))
 
 
+def _require_admin(principal):
+    if "admin" not in principal.roles:
+        raise HTTPException(status_code=403, detail="admin role required")
+
+
 def build_router() -> APIRouter:
     r = APIRouter(prefix="/v1")
+
+    @r.post("/keys")
+    def create_key(body: CreateKeyRequest, request: Request):
+        principal = _principal(request)
+        _require_admin(principal)
+        raw = generate_key()
+        key_id = f"key_{uuid.uuid4().hex[:12]}"
+        request.app.state.index.create_api_key(
+            id=key_id, key_hash=hash_key(raw), name=body.name,
+            allowed_collections=body.allowed_collections, roles=body.roles,
+            created_at=datetime.now(timezone.utc).isoformat())
+        return {"id": key_id, "name": body.name, "key": raw,
+                "allowed_collections": body.allowed_collections, "roles": body.roles}
+
+    @r.get("/keys")
+    def list_keys(request: Request):
+        _require_admin(_principal(request))
+        return request.app.state.index.list_api_keys()
+
+    @r.delete("/keys/{key_id}")
+    def revoke_key(key_id: str, request: Request):
+        _require_admin(_principal(request))
+        if not request.app.state.index.revoke_api_key(key_id):
+            raise HTTPException(status_code=404, detail="not found")
+        return {"id": key_id, "revoked": True}
 
     @r.post("/collections")
     def create_collection(body: CreateCollectionRequest, request: Request):

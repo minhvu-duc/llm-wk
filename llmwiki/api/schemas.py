@@ -19,3 +19,15 @@ class CreateCollectionRequest(BaseModel):
 
 class ResolveRequest(BaseModel):
     resolution: str  # as_update | as_new | reject
+
+
+class CreateKeyRequest(BaseModel):
+    name: str
+    allowed_collections: list[str] = Field(default_factory=list)
+    roles: list[str] = Field(default_factory=list)
+
+
+class QueryRequest(BaseModel):
+    query: str
+    top_k: int = 5
+    collections: list[str] | None = None
