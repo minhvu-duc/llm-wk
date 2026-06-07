@@ -1,4 +1,4 @@
-from llmwiki.mcp_server import build_core, ingest_tool, get_decision_tool
+from llmwiki.mcp_server import build_core, ingest_tool, get_decision_tool, query_tool
 from llmwiki.auth.base import Principal
 
 
@@ -22,3 +22,16 @@ def test_mcp_ingest_enforces_authz(tmp_path):
     principal = Principal(id="svc", allowed_collections=["other"], roles=["ingest"])
     r = ingest_tool(core, principal, "kb", {"content": "x"})
     assert r["error"] == "forbidden"
+
+
+def test_mcp_query_tool_matches_core(tmp_path):
+    core = build_core(data_dir=str(tmp_path), provider_name="fake")
+    core["service"].ensure_collection("kb")
+    admin = Principal(id="a", allowed_collections=["*"], roles=["admin"])
+    ingest_tool(core, admin, "kb", {"content": "The enterprise refund window is thirty days.",
+                                    "declared_id": "d1"})
+    q = query_tool(core, admin, "kb", "refund window", top_k=3)
+    assert q["query"] == "refund window" and len(q["results"]) >= 1
+    # query permission enforced
+    noq = Principal(id="n", allowed_collections=["kb"], roles=["ingest"])
+    assert query_tool(core, noq, "kb", "x")["error"] == "forbidden"
