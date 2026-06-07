@@ -1,8 +1,8 @@
 from __future__ import annotations
 import argparse
 import os
-from llmwiki.auth.apikey import ApiKeyAuthenticator
-from llmwiki.auth.base import Principal
+from datetime import datetime, timezone
+from llmwiki.auth.stored import StoredAuthenticator, hash_key
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -18,9 +18,12 @@ def build_parser() -> argparse.ArgumentParser:
     return p
 
 
-def _dev_authenticator() -> ApiKeyAuthenticator:
-    key = os.environ.get("LLMWIKI_API_KEY", "dev-key")
-    return ApiKeyAuthenticator({key: Principal(id="dev", allowed_collections=[], roles=["admin"])})
+def _seed_admin_key(index, raw_key: str) -> None:
+    """Ensure the configured admin key exists in the store (idempotent by hash)."""
+    if index.get_api_key_by_hash(hash_key(raw_key)) is None:
+        index.create_api_key(id="key_admin", key_hash=hash_key(raw_key), name="bootstrap-admin",
+                             allowed_collections=["*"], roles=["admin"],
+                             created_at=datetime.now(timezone.utc).isoformat())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -35,9 +38,15 @@ def main(argv: list[str] | None = None) -> int:
         import uvicorn
         from llmwiki.api.app import create_app
         from llmwiki.dashboard import attach_dashboard
-        app = create_app(data_dir=args.data_dir, authenticator=_dev_authenticator(),
+        from llmwiki.admin_ui import attach_admin
+        from llmwiki.storage import IndexStore
+        admin_key = os.environ.get("LLMWIKI_API_KEY", "dev-key")
+        _seed_admin_key(IndexStore(f"{args.data_dir}/index.db"), admin_key)
+        app = create_app(data_dir=args.data_dir, authenticator_factory=StoredAuthenticator,
                          provider_name=os.environ.get("LLMWIKI_PROVIDER", "fake"))
         attach_dashboard(app)
+        attach_admin(app)
+        print(f"llmwiki serving on {args.host}:{args.port}  (admin key: {admin_key})")
         uvicorn.run(app, host=args.host, port=args.port)
         return 0
     return 1
