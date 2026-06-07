@@ -26,6 +26,11 @@ CREATE INDEX IF NOT EXISTS idx_decisions_idem ON decisions(collection, idempoten
 CREATE TABLE IF NOT EXISTS reviews (
   id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, collection TEXT NOT NULL,
   status TEXT NOT NULL, candidates TEXT, resolution TEXT, resolver_id TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE, name TEXT,
+  allowed_collections TEXT NOT NULL DEFAULT '[]', roles TEXT NOT NULL DEFAULT '[]',
+  revoked INTEGER NOT NULL DEFAULT 0, created_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 """
 
 
@@ -55,6 +60,40 @@ class IndexStore:
             "ON CONFLICT(name) DO UPDATE SET config=excluded.config",
             (name, json.dumps(config)))
         self._conn.commit()
+
+    def list_collections(self) -> list[str]:
+        rows = self._conn.execute("SELECT name FROM collections ORDER BY name").fetchall()
+        return [r["name"] for r in rows]
+
+    # --- api keys ---
+    def create_api_key(self, id: str, key_hash: str, name: str,
+                       allowed_collections: list[str], roles: list[str], created_at: str) -> None:
+        self._conn.execute(
+            """INSERT INTO api_keys(id, key_hash, name, allowed_collections, roles, revoked, created_at)
+               VALUES (?,?,?,?,?,0,?)""",
+            (id, key_hash, name, json.dumps(allowed_collections), json.dumps(roles), created_at))
+        self._conn.commit()
+
+    def get_api_key_by_hash(self, key_hash: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM api_keys WHERE key_hash=? AND revoked=0", (key_hash,)).fetchone()
+        if not row:
+            return None
+        return {"id": row["id"], "name": row["name"],
+                "allowed_collections": json.loads(row["allowed_collections"]),
+                "roles": json.loads(row["roles"])}
+
+    def list_api_keys(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, name, allowed_collections, roles, revoked FROM api_keys ORDER BY created_at").fetchall()
+        return [{"id": r["id"], "name": r["name"],
+                 "allowed_collections": json.loads(r["allowed_collections"]),
+                 "roles": json.loads(r["roles"]), "revoked": bool(r["revoked"])} for r in rows]
+
+    def revoke_api_key(self, id: str) -> bool:
+        cur = self._conn.execute("UPDATE api_keys SET revoked=1 WHERE id=?", (id,))
+        self._conn.commit()
+        return cur.rowcount > 0
 
     # --- documents / versions ---
     def save_document(self, doc: Document) -> None:
