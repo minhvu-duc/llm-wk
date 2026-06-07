@@ -78,7 +78,39 @@ curl -s localhost:8000/v1/collections/kb/documents -H "authorization: Bearer dev
 # (trivial content like "hi thanks" is filtered by the quality gate -> {"outcome":"REJECTED"})
 ```
 
-Review queue dashboard: `http://localhost:8000/dashboard/kb`.
+Admin UI: `http://localhost:8000/admin` (log in with the admin key). Minimal review dashboard
+also at `http://localhost:8000/dashboard/kb`.
+
+## Realms, API keys & access
+
+A **realm (zone)** is a collection — an isolated unit with its own pipeline, documents, and git
+history. Access is by **API key**, scoped to zones + roles. `llmwiki serve` seeds an admin key from
+`LLMWIKI_API_KEY`; mint scoped keys with it:
+
+```bash
+curl -s localhost:8000/v1/keys -H "authorization: Bearer $ADMIN" -H 'content-type: application/json' \
+  -d '{"name":"chat-agent","allowed_collections":["kb"],"roles":["ingest","query"]}'
+# -> {"id":"key_...","key":"lw_...", ...}   (the raw key is shown once)
+```
+
+Roles: `ingest` (push), `read` (fetch a doc), `query` (search), `reviewer`, `admin`.
+`allowed_collections:["*"]` grants all zones. Keys are stored as SHA-256 hashes only; list with
+`GET /v1/keys`, revoke with `DELETE /v1/keys/{id}` (admin only).
+
+## Querying
+
+```bash
+# search one zone (needs `query` on that zone)
+curl -s localhost:8000/v1/collections/kb/query -H "authorization: Bearer $KEY" \
+  -H 'content-type: application/json' -d '{"query":"refund window","top_k":5}'
+
+# search across all zones the key may read
+curl -s localhost:8000/v1/query -H "authorization: Bearer $KEY" \
+  -H 'content-type: application/json' -d '{"query":"refund window"}'
+# -> {"query":"...","zones":[...],"results":[{document_id,collection,score,snippet,wiki_path}]}
+```
+
+Global query spans the principal's allowed zones (`*` → all); pass `collections` to narrow.
 
 ## Configuration
 
@@ -96,10 +128,14 @@ self-hosted backend by implementing `llmwiki.providers.base.Provider`.
 
 ## Interfaces
 
-- **REST** — `POST /v1/collections/{c}/documents`, `GET /v1/decisions/{id}`,
-  `GET /v1/collections/{c}/reviews`, `POST /v1/reviews/{id}/resolve`, `GET /healthz`.
-- **MCP** — `ingest_document`, `get_decision`, `list_pending_reviews` (see
+- **REST** — ingest `POST /v1/collections/{c}/documents`; query `POST /v1/collections/{c}/query`,
+  `POST /v1/query`; config `GET|PUT /v1/collections/{c}/config`; keys `POST|GET /v1/keys`,
+  `DELETE /v1/keys/{id}`; reviews `GET /v1/collections/{c}/reviews`, `POST /v1/reviews/{id}/resolve`;
+  `GET /v1/decisions/{id}`; `GET /healthz`.
+- **MCP** — `ingest_document`, `query`, `get_decision`, `list_pending_reviews` (see
   `llmwiki/mcp_server.py::serve_mcp`). REST and MCP share one core, verified by a contract test.
+- **Admin UI** — `/admin` (key-cookie login): realms, visual pipeline + JSON editor, review queue
+  actions, API-key management, and a gate-concepts help page.
 
 ## Storage
 

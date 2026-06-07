@@ -26,6 +26,11 @@ CREATE INDEX IF NOT EXISTS idx_decisions_idem ON decisions(collection, idempoten
 CREATE TABLE IF NOT EXISTS reviews (
   id TEXT PRIMARY KEY, decision_id TEXT NOT NULL, collection TEXT NOT NULL,
   status TEXT NOT NULL, candidates TEXT, resolution TEXT, resolver_id TEXT, created_at TEXT);
+CREATE TABLE IF NOT EXISTS api_keys (
+  id TEXT PRIMARY KEY, key_hash TEXT NOT NULL UNIQUE, name TEXT,
+  allowed_collections TEXT NOT NULL DEFAULT '[]', roles TEXT NOT NULL DEFAULT '[]',
+  revoked INTEGER NOT NULL DEFAULT 0, created_at TEXT);
+CREATE INDEX IF NOT EXISTS idx_api_keys_hash ON api_keys(key_hash);
 """
 
 
@@ -55,6 +60,40 @@ class IndexStore:
             "ON CONFLICT(name) DO UPDATE SET config=excluded.config",
             (name, json.dumps(config)))
         self._conn.commit()
+
+    def list_collections(self) -> list[str]:
+        rows = self._conn.execute("SELECT name FROM collections ORDER BY name").fetchall()
+        return [r["name"] for r in rows]
+
+    # --- api keys ---
+    def create_api_key(self, id: str, key_hash: str, name: str,
+                       allowed_collections: list[str], roles: list[str], created_at: str) -> None:
+        self._conn.execute(
+            """INSERT INTO api_keys(id, key_hash, name, allowed_collections, roles, revoked, created_at)
+               VALUES (?,?,?,?,?,0,?)""",
+            (id, key_hash, name, json.dumps(allowed_collections), json.dumps(roles), created_at))
+        self._conn.commit()
+
+    def get_api_key_by_hash(self, key_hash: str) -> dict | None:
+        row = self._conn.execute(
+            "SELECT * FROM api_keys WHERE key_hash=? AND revoked=0", (key_hash,)).fetchone()
+        if not row:
+            return None
+        return {"id": row["id"], "name": row["name"],
+                "allowed_collections": json.loads(row["allowed_collections"]),
+                "roles": json.loads(row["roles"])}
+
+    def list_api_keys(self) -> list[dict]:
+        rows = self._conn.execute(
+            "SELECT id, name, allowed_collections, roles, revoked FROM api_keys ORDER BY created_at").fetchall()
+        return [{"id": r["id"], "name": r["name"],
+                 "allowed_collections": json.loads(r["allowed_collections"]),
+                 "roles": json.loads(r["roles"]), "revoked": bool(r["revoked"])} for r in rows]
+
+    def revoke_api_key(self, id: str) -> bool:
+        cur = self._conn.execute("UPDATE api_keys SET revoked=1 WHERE id=?", (id,))
+        self._conn.commit()
+        return cur.rowcount > 0
 
     # --- documents / versions ---
     def save_document(self, doc: Document) -> None:
@@ -98,6 +137,30 @@ class IndexStore:
              v.created_at.isoformat(), json.dumps(embedding), json.dumps(sorted(shingles)), content))
         self._conn.commit()
 
+    def search(self, collection: str, embedding: list[float], top_k: int = 5) -> list[dict]:
+        import math
+        rows = self._conn.execute(
+            """SELECT d.id AS doc_id, d.wiki_path, v.embedding, v.content
+               FROM documents d JOIN versions v ON d.current_version_id = v.id
+               WHERE d.collection=? AND d.status='active'""", (collection,)).fetchall()
+
+        def cos(a, b):
+            if not a or not b:
+                return 0.0
+            dot = sum(x * y for x, y in zip(a, b))
+            na = math.sqrt(sum(x * x for x in a)) or 1.0
+            nb = math.sqrt(sum(x * x for x in b)) or 1.0
+            return dot / (na * nb)
+
+        scored = []
+        for r in rows:
+            score = cos(embedding, json.loads(r["embedding"]))
+            scored.append({"document_id": r["doc_id"], "collection": collection,
+                           "score": round(score, 4), "content": r["content"],
+                           "wiki_path": r["wiki_path"]})
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:top_k]
+
     def current_candidates(self, collection: str) -> list[Candidate]:
         rows = self._conn.execute(
             """SELECT d.id AS doc_id, v.content_hash, v.embedding, v.shingles, v.content
@@ -123,6 +186,12 @@ class IndexStore:
     def get_decision(self, decision_id: str) -> DecisionRecord | None:
         row = self._conn.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()
         return self._row_to_decision(row) if row else None
+
+    def recent_decisions(self, collection: str, limit: int = 20) -> list[DecisionRecord]:
+        rows = self._conn.execute(
+            "SELECT * FROM decisions WHERE collection=? ORDER BY created_at DESC LIMIT ?",
+            (collection, limit)).fetchall()
+        return [self._row_to_decision(r) for r in rows]
 
     def get_decision_by_idempotency(self, collection: str, key: str) -> DecisionRecord | None:
         row = self._conn.execute(

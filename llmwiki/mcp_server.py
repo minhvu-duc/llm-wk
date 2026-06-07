@@ -4,6 +4,7 @@ from llmwiki.auth.base import AuthError, Principal
 from llmwiki.coordinator import Coordinator
 from llmwiki.models import IncomingDocument
 from llmwiki.pipeline import IngestService
+from llmwiki.query import QueryService
 from llmwiki.providers.fake import FakeProvider
 from llmwiki.storage import IndexStore
 
@@ -15,7 +16,16 @@ def build_core(data_dir: str, provider_name: str = "fake") -> dict:
         provider = LiteLLMProvider()
     index = IndexStore(f"{data_dir}/index.db")
     service = IngestService(index=index, content_root=f"{data_dir}/repos", provider=provider)
-    return {"index": index, "service": service, "coordinator": Coordinator(service)}
+    return {"index": index, "service": service, "coordinator": Coordinator(service),
+            "query": QueryService(index, provider)}
+
+
+def query_tool(core: dict, principal: Principal, collection: str, query: str, top_k: int = 5) -> dict:
+    try:
+        authorize(principal, collection, "query")
+    except AuthError:
+        return {"error": "forbidden"}
+    return {"query": query, "results": core["query"].query_zone(collection, query, top_k)}
 
 
 def ingest_tool(core: dict, principal: Principal, collection: str, body: dict) -> dict:
@@ -61,5 +71,9 @@ def serve_mcp(data_dir: str, provider_name: str = "fake") -> None:  # pragma: no
     @mcp.tool()
     def list_pending_reviews(collection: str) -> list:
         return list_pending_reviews_tool(core, admin, collection)
+
+    @mcp.tool()
+    def query(collection: str, query: str, top_k: int = 5) -> dict:
+        return query_tool(core, admin, collection, query, top_k)
 
     mcp.run()
