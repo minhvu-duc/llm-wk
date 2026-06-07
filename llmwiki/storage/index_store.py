@@ -187,6 +187,12 @@ class IndexStore:
         row = self._conn.execute("SELECT * FROM decisions WHERE id=?", (decision_id,)).fetchone()
         return self._row_to_decision(row) if row else None
 
+    def recent_decisions(self, collection: str, limit: int = 20) -> list[DecisionRecord]:
+        rows = self._conn.execute(
+            "SELECT * FROM decisions WHERE collection=? ORDER BY created_at DESC LIMIT ?",
+            (collection, limit)).fetchall()
+        return [self._row_to_decision(r) for r in rows]
+
     def get_decision_by_idempotency(self, collection: str, key: str) -> DecisionRecord | None:
         row = self._conn.execute(
             "SELECT * FROM decisions WHERE collection=? AND idempotency_key=?",
