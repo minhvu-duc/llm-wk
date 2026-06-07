@@ -137,6 +137,30 @@ class IndexStore:
              v.created_at.isoformat(), json.dumps(embedding), json.dumps(sorted(shingles)), content))
         self._conn.commit()
 
+    def search(self, collection: str, embedding: list[float], top_k: int = 5) -> list[dict]:
+        import math
+        rows = self._conn.execute(
+            """SELECT d.id AS doc_id, d.wiki_path, v.embedding, v.content
+               FROM documents d JOIN versions v ON d.current_version_id = v.id
+               WHERE d.collection=? AND d.status='active'""", (collection,)).fetchall()
+
+        def cos(a, b):
+            if not a or not b:
+                return 0.0
+            dot = sum(x * y for x, y in zip(a, b))
+            na = math.sqrt(sum(x * x for x in a)) or 1.0
+            nb = math.sqrt(sum(x * x for x in b)) or 1.0
+            return dot / (na * nb)
+
+        scored = []
+        for r in rows:
+            score = cos(embedding, json.loads(r["embedding"]))
+            scored.append({"document_id": r["doc_id"], "collection": collection,
+                           "score": round(score, 4), "content": r["content"],
+                           "wiki_path": r["wiki_path"]})
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return scored[:top_k]
+
     def current_candidates(self, collection: str) -> list[Candidate]:
         rows = self._conn.execute(
             """SELECT d.id AS doc_id, v.content_hash, v.embedding, v.shingles, v.content
