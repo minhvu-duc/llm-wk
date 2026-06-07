@@ -7,6 +7,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from llmwiki.auth.base import AuthError
 from llmwiki.config import CollectionConfig, default_pipeline
 from llmwiki.rules.engine import build_pipeline
+from llmwiki.rules.catalog import rule_catalog
 
 _REALM_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,63}$")
 
@@ -30,6 +31,76 @@ _CSS = """
  .ok{color:#065f46;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:6px;padding:8px;margin:8px 0}
  code{background:#f3f4f6;padding:1px 5px;border-radius:4px}
 </style>
+"""
+
+
+_BUILDER_JS = r"""
+var byId = {}; RULE_TYPES.forEach(function(rt){ byId[rt.id]=rt; });
+var CATS = []; RULE_TYPES.forEach(function(rt){ if(CATS.indexOf(rt.category)<0) CATS.push(rt.category); });
+var state = JSON.parse(JSON.stringify(PIPELINE));
+function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function render(){
+  var root=document.getElementById('builder'); root.innerHTML='';
+  if(state.length===0){ root.innerHTML='<p class="cat">no gates — every document is ACCEPTed. add a gate below.</p>'; }
+  state.forEach(function(g,gi){
+    var card=document.createElement('div'); card.className='gate';
+    var head=document.createElement('div');
+    head.innerHTML='<input value="'+esc(g.gate)+'" placeholder="gate name" onchange="state['+gi+'].gate=this.value"/> '+
+      '<button type="button" onclick="moveGate('+gi+',-1)">▲</button> '+
+      '<button type="button" onclick="moveGate('+gi+',1)">▼</button> '+
+      '<button type="button" class="danger" onclick="delGate('+gi+')">remove gate</button>';
+    card.appendChild(head);
+    (g.rules||[]).forEach(function(rl,ri){ card.appendChild(ruleRow(gi,ri,rl)); });
+    var add=document.createElement('button'); add.type='button'; add.className='secondary'; add.textContent='+ rule';
+    add.onclick=function(){ if(!state[gi].rules) state[gi].rules=[]; state[gi].rules.push({type:RULE_TYPES[0].id, params:{}}); render(); };
+    card.appendChild(add); root.appendChild(card);
+  });
+}
+function ruleRow(gi,ri,rl){
+  var row=document.createElement('div');
+  row.style.cssText='margin:6px 0;padding:6px;border:1px solid #e5e7eb;border-radius:6px;background:#fff';
+  var opts='';
+  CATS.forEach(function(c){
+    opts+='<optgroup label="'+esc(c)+'">';
+    RULE_TYPES.filter(function(r){return r.category===c;}).forEach(function(r){
+      opts+='<option value="'+esc(r.id)+'"'+(r.id===rl.type?' selected':'')+'>'+esc(r.id)+'</option>';
+    });
+    opts+='</optgroup>';
+  });
+  var ctl=document.createElement('div');
+  ctl.innerHTML='<select onchange="setType('+gi+','+ri+',this.value)">'+opts+'</select> '+
+    '<button type="button" onclick="moveRule('+gi+','+ri+',-1)">▲</button> '+
+    '<button type="button" onclick="moveRule('+gi+','+ri+',1)">▼</button> '+
+    '<button type="button" class="danger" onclick="delRule('+gi+','+ri+')">x</button>';
+  row.appendChild(ctl);
+  var pc=document.createElement('div'); pc.style.marginTop='4px';
+  var rt=byId[rl.type];
+  (rt?rt.params:[]).forEach(function(p){ pc.appendChild(paramField(gi,ri,p,(rl.params||{})[p.name])); });
+  row.appendChild(pc); return row;
+}
+function paramField(gi,ri,p,val){
+  if(val===undefined||val===null) val=p.default;
+  var w=document.createElement('label'); w.style.cssText='display:inline-block;margin:3px 10px 3px 0;font-size:13px';
+  var k="setParam("+gi+","+ri+",'"+p.name+"',"; var inp;
+  if(p.type==='bool'){ inp='<input type="checkbox" '+(val?'checked':'')+' onchange="'+k+'this.checked)"/>'; }
+  else if(p.type==='enum'){ inp='<select onchange="'+k+'this.value)">'+p.options.map(function(o){return '<option'+(o===val?' selected':'')+'>'+esc(o)+'</option>';}).join('')+'</select>'; }
+  else if(p.type==='int'){ inp='<input type="number" step="1" value="'+esc(val)+'" onchange="'+k+'Math.round(this.valueAsNumber||0))"/>'; }
+  else if(p.type==='float'){ inp='<input type="number" step="0.01" value="'+esc(val)+'" onchange="'+k+'(isNaN(this.valueAsNumber)?0:this.valueAsNumber))"/>'; }
+  else if(p.type==='list'){ inp='<input type="text" placeholder="comma,separated" value="'+esc((val||[]).join(','))+'" onchange="setParamList('+gi+','+ri+',\''+p.name+'\',this.value)"/>'; }
+  else if(p.name==='rubric'){ inp='<textarea style="min-height:60px;width:320px;vertical-align:top" onchange="'+k+'this.value)">'+esc(val)+'</textarea>'; }
+  else { inp='<input type="text" value="'+esc(val)+'" onchange="'+k+'this.value)"/>'; }
+  w.innerHTML=esc(p.name)+' '+inp; return w;
+}
+function setType(gi,ri,t){ state[gi].rules[ri]={type:t,params:{}}; render(); }
+function setParam(gi,ri,name,v){ if(!state[gi].rules[ri].params) state[gi].rules[ri].params={}; state[gi].rules[ri].params[name]=v; }
+function setParamList(gi,ri,name,v){ setParam(gi,ri,name, v.split(',').map(function(s){return s.trim();}).filter(Boolean)); }
+function addGate(){ state.push({gate:'gate'+(state.length+1),rules:[]}); render(); }
+function delGate(gi){ state.splice(gi,1); render(); }
+function delRule(gi,ri){ state[gi].rules.splice(ri,1); render(); }
+function moveGate(gi,d){ var j=gi+d; if(j<0||j>=state.length) return; var t=state[gi]; state[gi]=state[j]; state[j]=t; render(); }
+function moveRule(gi,ri,d){ var rs=state[gi].rules; var j=ri+d; if(j<0||j>=rs.length) return; var t=rs[ri]; rs[ri]=rs[j]; rs[j]=t; render(); }
+function doSave(){ document.getElementById('pjson').value=JSON.stringify(state); return true; }
+render();
 """
 
 
@@ -139,6 +210,8 @@ def attach_admin(app: FastAPI) -> None:
                           f'<br>{chips}</div>')
 
         editor_json = html.escape(json.dumps(pipeline, indent=2))
+        rule_types_js = json.dumps(rule_catalog())
+        pipeline_js = json.dumps(pipeline)
         banner = (f'<div class="err">{html.escape(error)}</div>' if error else
                   f'<div class="ok">{html.escape(ok)}</div>' if ok else "")
 
@@ -166,10 +239,18 @@ def attach_admin(app: FastAPI) -> None:
         body = (
             f'<h2>Realm: {html.escape(collection)}</h2>{banner}'
             f'<div class="card"><h3>Pipeline</h3>{gate_html}</div>'
-            f'<div class="card"><h3>Edit pipeline (JSON)</h3>'
-            f'<form method="post" action="/admin/realms/{collection}/config">'
+            f'<div class="card"><h3>Pipeline builder</h3>'
+            f'<div id="builder"></div>'
+            f'<button type="button" onclick="addGate()" style="margin-top:8px">+ gate</button>'
+            f'<form id="pform" method="post" action="/admin/realms/{collection}/config" '
+            f'onsubmit="return doSave()" style="margin-top:10px">'
+            f'<input type="hidden" name="pipeline_json" id="pjson">'
+            f'<button type="submit">Save pipeline</button></form></div>'
+            f'<details class="card"><summary>Advanced (raw JSON)</summary>'
+            f'<form method="post" action="/admin/realms/{collection}/config" style="margin-top:8px">'
             f'<textarea name="pipeline_json">{editor_json}</textarea><br>'
-            '<button type="submit">Save pipeline</button></form></div>'
+            f'<button type="submit" class="secondary">Save raw JSON</button></form></details>'
+            f'<script>const RULE_TYPES={rule_types_js};const PIPELINE={pipeline_js};{_BUILDER_JS}</script>'
             f'<div class="card"><h3>Review queue</h3>{rev_table}</div>'
             f'<div class="card"><h3>Recent decisions</h3>{dec_table}</div>')
         return _page(f"realm {collection}", body)

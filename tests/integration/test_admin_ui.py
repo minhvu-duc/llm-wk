@@ -89,6 +89,25 @@ def test_help_page_renders(tmp_path):
     assert r.status_code == 200 and "How gates" in r.text and "Dispositions" in r.text
 
 
+def test_realm_page_has_visual_builder_and_catalog(tmp_path):
+    c = logged_in(tmp_path)
+    page = c.get("/admin/realms/kb").text
+    assert 'id="builder"' in page
+    assert "const RULE_TYPES" in page
+    assert "const PIPELINE" in page
+    assert "min_length" in page and "semantic_replace" in page
+    assert "Advanced (raw JSON)" in page
+    assert 'name="pipeline_json"' in page
+
+
+def test_raw_json_save_still_works(tmp_path):
+    c = logged_in(tmp_path)
+    import json as _j
+    good = _j.dumps([{"gate": "dedup", "rules": [{"type": "exact_duplicate"}]}])
+    r = c.post("/admin/realms/kb/config", data={"pipeline_json": good})
+    assert r.status_code == 200 and "pipeline saved" in r.text
+
+
 def test_home_shows_new_realm_form(tmp_path):
     c = logged_in(tmp_path)
     assert 'action="/admin/realms"' in c.get("/admin").text
